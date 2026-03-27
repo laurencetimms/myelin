@@ -46,6 +46,61 @@
     font-weight: 500;
   }
 
+  #hud-center {
+    position: absolute;
+    top: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    pointer-events: all;
+  }
+
+  #sound-toggle {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  #sound-toggle input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 13px;
+    height: 13px;
+    border: 1.5px solid #444;
+    border-radius: 2px;
+    background: transparent;
+    cursor: pointer;
+    position: relative;
+    flex-shrink: 0;
+    margin: 0;
+  }
+
+  #sound-toggle input[type="checkbox"]:checked {
+    background: #333;
+    border-color: #555;
+  }
+
+  #sound-toggle input[type="checkbox"]:checked::after {
+    content: '';
+    position: absolute;
+    left: 2px;
+    top: 0px;
+    width: 5px;
+    height: 8px;
+    border: 1.5px solid #666;
+    border-top: none;
+    border-left: none;
+    transform: rotate(45deg);
+  }
+
+  #sound-label {
+    font-size: 0.72rem;
+    color: #444;
+    letter-spacing: 0.05em;
+  }
+
   #hud-right {
     position: absolute;
     top: 14px;
@@ -366,6 +421,12 @@
     <div id="hud-left">
       <div id="avg-display">AVG ---</div>
     </div>
+    <div id="hud-center">
+      <label id="sound-toggle" title="Toggle sound">
+        <input type="checkbox" id="sound-checkbox" checked>
+        <span id="sound-label">♪</span>
+      </label>
+    </div>
     <div id="hud-right">
       <div id="score-display">0</div>
       <div id="lives-display"></div>
@@ -384,7 +445,7 @@
   <div id="screen">
     <!-- Start -->
     <div id="start-screen">
-      <div id="start-title">REACT</div>
+      <div id="start-title">MYELIN</div>
       <div id="start-subtitle">Press any key to begin</div>
       <div id="start-highscore"></div>
     </div>
@@ -413,9 +474,9 @@
 // ─── Constants ────────────────────────────────────────────────────────────────
 const GROUPS_PER_ROUND = 30;
 const TOTAL_LIVES = 3;
-const GAP_START = 3000;
+const GAP_START = 2500;
 const GAP_MIN = 300;
-const GAP_STEP = 100;
+const GAP_STEP = 200;
 const STAGGER_MS = 300;
 const ANN_CHAR_STAGGER = 250;
 const ANN_HOLD = 1500;
@@ -448,6 +509,7 @@ const state = {
 
   // audio
   audioCtx: null,
+  soundEnabled: true,
 
   // initials entry
   enteredInitials: [],
@@ -485,7 +547,7 @@ function initAudio() {
 }
 
 function playTone({ freq = 440, endFreq = null, duration = 100, type = 'sine', gain = 0.1, startDelay = 0 } = {}) {
-  if (!state.audioCtx) return;
+  if (!state.audioCtx || !state.soundEnabled) return;
   try {
     const ctx = state.audioCtx;
     const osc = ctx.createOscillator();
@@ -893,7 +955,7 @@ function handleGameKey(letter) {
     // Correct!
     const now = performance.now();
     const reactionMs = Math.round(now - expectedItem.appearTime);
-    const points = Math.max(10, Math.round(1000 - reactionMs * 2));
+    const points = Math.max(10, Math.round(50000 / Math.max(reactionMs, 50)));
 
     state.score += points;
     state.reactionTimes.push(reactionMs);
@@ -1153,6 +1215,13 @@ function showLeaderboard(highlightRank) {
 // invalidate cached letter size on resize
 window.addEventListener('resize', () => {
   cachedLetterSize = null;
+});
+
+// sound toggle
+document.getElementById('sound-checkbox').addEventListener('change', function() {
+  state.soundEnabled = this.checked;
+  const label = document.getElementById('sound-label');
+  label.style.color = this.checked ? '#444' : '#333';
 });
 
 showStartScreen();
