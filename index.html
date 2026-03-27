@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MYELIN.</title>
+<title>MYELIN</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -384,7 +384,7 @@
   <div id="screen">
     <!-- Start -->
     <div id="start-screen">
-      <div id="start-title">MYELIN</div>
+      <div id="start-title">REACT</div>
       <div id="start-subtitle">Press any key to begin</div>
       <div id="start-highscore"></div>
     </div>
@@ -413,9 +413,9 @@
 // ─── Constants ────────────────────────────────────────────────────────────────
 const GROUPS_PER_ROUND = 30;
 const TOTAL_LIVES = 3;
-const GAP_START = 2500;
+const GAP_START = 3000;
 const GAP_MIN = 300;
-const GAP_STEP = 150;
+const GAP_STEP = 100;
 const STAGGER_MS = 300;
 const ANN_CHAR_STAGGER = 250;
 const ANN_HOLD = 1500;
@@ -583,10 +583,10 @@ function renderHUD() {
   }
 }
 
-function flashLifePip() {
-  // After decrement, state.lives is the new count.
-  // Pips are indexed 0..TOTAL_LIVES-1, with pip-0 being the leftmost/first.
-  // The pip that just got lost is at index state.lives (it was the last filled one).
+function flashLifePip(index) {
+  const pip = document.getElementById(`pip-${TOTAL_LIVES - 1 - index}`);
+  // Actually pip 0 is leftmost. The lost life is the one that just turned lost.
+  // We want to flash the pip that just got lost, which is now index = state.lives (after decrement)
   const lostPip = document.getElementById(`pip-${state.lives}`);
   if (!lostPip) return;
   lostPip.classList.add('flash-red');
@@ -765,17 +765,10 @@ function showGroup() {
 
   const isFirstRound = state.round === 1;
 
-  // Save reference to current group for stale closure check
-  const group = state.currentGroup;
-
   function showLetterAt(index) {
-    // if this group was already cleared (e.g. game over mid-stagger), skip
-    if (state.currentGroup !== group) return;
     const item = state.currentGroup[index];
     const el = document.createElement('div');
-    // Dim if not the current active target
-    const isActiveTarget = (index === state.nextExpected);
-    el.className = 'letter-el' + (!isActiveTarget ? ' dim' : '');
+    el.className = 'letter-el' + (index > 0 ? ' dim' : '');
     el.textContent = item.letter;
     el.style.left = `${item.pos.x}px`;
     el.style.top = `${item.pos.y}px`;
@@ -979,6 +972,8 @@ function announceRound(roundNum, callback) {
 
     const spawnedEls = [];
     let charIdx = 0;
+    const nonSpaceChars = chars.filter(c => c !== ' ');
+    let spawnCount = 0;
 
     function spawnNext() {
       if (charIdx >= chars.length) {
@@ -1013,6 +1008,7 @@ function announceRound(roundNum, callback) {
       spawnedEls.push(el);
       sfxAnnChar();
 
+      spawnCount++;
       setTimeout(spawnNext, ANN_CHAR_STAGGER);
     }
 
