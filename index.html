@@ -1,0 +1,1165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MYELIN</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #08080c;
+    color: #f0f0f0;
+    font-family: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    overflow: hidden;
+    width: 100vw;
+    height: 100vh;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  #game-container {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  /* HUD */
+  #hud {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    pointer-events: none;
+    z-index: 100;
+  }
+
+  #hud-left {
+    position: absolute;
+    top: 18px;
+    left: 22px;
+  }
+
+  #avg-display {
+    font-size: 0.85rem;
+    color: #666;
+    letter-spacing: 0.08em;
+    font-weight: 500;
+  }
+
+  #hud-right {
+    position: absolute;
+    top: 14px;
+    right: 22px;
+    text-align: right;
+  }
+
+  #score-display {
+    font-size: 1.6rem;
+    color: #00e5ff;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    line-height: 1;
+  }
+
+  #lives-display {
+    margin-top: 6px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+  }
+
+  .life-pip {
+    font-size: 0.85rem;
+    color: #00e5ff;
+    transition: color 0.1s;
+  }
+
+  .life-pip.lost {
+    color: #333;
+  }
+
+  .life-pip.flash-red {
+    color: #ff2244;
+  }
+
+  /* Flash overlay */
+  #flash-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(255, 34, 68, 0.12);
+    pointer-events: none;
+    opacity: 0;
+    z-index: 200;
+  }
+
+  #flash-overlay.active {
+    opacity: 1;
+  }
+
+  /* Letter elements */
+  .letter-el {
+    position: absolute;
+    font-size: clamp(3rem, 6vw, 5rem);
+    font-weight: 700;
+    color: #f0f0f0;
+    text-transform: uppercase;
+    cursor: default;
+    transform-origin: center;
+    pointer-events: none;
+    animation: letterAppear 150ms cubic-bezier(0.0, 0.0, 0.2, 1) forwards;
+    text-shadow: 0 0 20px rgba(255,255,255,0.15);
+    line-height: 1;
+  }
+
+  .letter-el.dim {
+    opacity: 0.35;
+  }
+
+  .letter-el.activating {
+    transition: opacity 100ms ease;
+    opacity: 1;
+  }
+
+  @keyframes letterAppear {
+    from { transform: scale(3); opacity: 0; }
+    to   { transform: scale(1); opacity: 1; }
+  }
+
+  @keyframes glowFade {
+    from { text-shadow: 0 0 20px rgba(255,255,255,0.15); }
+    to   { text-shadow: 0 0 0px rgba(255,255,255,0); }
+  }
+
+  .letter-el.glow-fade {
+    animation: glowFade 300ms ease forwards;
+  }
+
+  @keyframes correctHit {
+    0%   { transform: scale(1); opacity: 1; color: #00e5ff; text-shadow: 0 0 20px rgba(0,229,255,0.5); }
+    30%  { transform: scale(1.3); opacity: 1; }
+    100% { transform: scale(1.3); opacity: 0; }
+  }
+
+  .letter-el.correct-anim {
+    animation: correctHit 180ms ease forwards !important;
+    color: #00e5ff;
+    pointer-events: none;
+  }
+
+  @keyframes shakeLetter {
+    0%   { transform: translateX(0); }
+    15%  { transform: translateX(-6px); }
+    30%  { transform: translateX(6px); }
+    45%  { transform: translateX(-6px); }
+    60%  { transform: translateX(6px); }
+    75%  { transform: translateX(-6px); }
+    90%  { transform: translateX(6px); }
+    100% { transform: translateX(0); }
+  }
+
+  .letter-el.shake-anim {
+    animation: shakeLetter 200ms ease-out forwards !important;
+  }
+
+  /* Score popup */
+  .score-popup {
+    position: absolute;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #5dd6e0;
+    pointer-events: none;
+    white-space: nowrap;
+    opacity: 1;
+    z-index: 150;
+    animation: scoreRise 600ms ease-out forwards;
+  }
+
+  @keyframes scoreRise {
+    0%   { transform: translateY(0);    opacity: 1; }
+    100% { transform: translateY(-55px); opacity: 0; }
+  }
+
+  /* Screens */
+  #screen {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 50;
+  }
+
+  #screen.hidden { display: none; }
+
+  /* Start screen */
+  @keyframes reactPulse {
+    0%, 100% { opacity: 0.7; }
+    50%       { opacity: 1.0; }
+  }
+
+  #start-title {
+    font-size: clamp(3rem, 8vw, 7rem);
+    font-weight: 800;
+    letter-spacing: 0.3em;
+    color: #f0f0f0;
+    animation: reactPulse 3s ease-in-out infinite;
+  }
+
+  @keyframes subtlePulse {
+    0%, 100% { opacity: 0.4; }
+    50%       { opacity: 0.65; }
+  }
+
+  #start-subtitle {
+    margin-top: 24px;
+    font-size: 0.95rem;
+    color: #777;
+    letter-spacing: 0.12em;
+    animation: subtlePulse 3s ease-in-out infinite;
+  }
+
+  #start-highscore {
+    margin-top: 16px;
+    font-size: 0.78rem;
+    color: #555;
+    letter-spacing: 0.1em;
+  }
+
+  /* Announcement chars */
+  .ann-char {
+    position: absolute;
+    font-size: clamp(2.5rem, 6vw, 5rem);
+    font-weight: 800;
+    color: #f0f0f0;
+    letter-spacing: 0.05em;
+    pointer-events: none;
+    transform-origin: center;
+    animation: annAppear 200ms cubic-bezier(0.0, 0.0, 0.2, 1) forwards;
+  }
+
+  @keyframes annAppear {
+    from { transform: scale(3); opacity: 0; }
+    to   { transform: scale(1); opacity: 1; }
+  }
+
+  .ann-char.fade-out {
+    animation: annFadeOut 300ms ease forwards !important;
+  }
+
+  @keyframes annFadeOut {
+    from { opacity: 1; }
+    to   { opacity: 0; }
+  }
+
+  /* Game Over screen */
+  #gameover-title {
+    font-size: clamp(2.5rem, 6vw, 5rem);
+    font-weight: 800;
+    color: #f0f0f0;
+    letter-spacing: 0.15em;
+    opacity: 0;
+  }
+
+  #gameover-title.show {
+    opacity: 1;
+  }
+
+  @keyframes goFlicker {
+    0%   { opacity: 1; }
+    30%  { opacity: 0.3; }
+    60%  { opacity: 1; }
+    100% { opacity: 1; }
+  }
+
+  #gameover-title.flicker {
+    animation: goFlicker 200ms ease forwards;
+  }
+
+  #gameover-stats {
+    margin-top: 32px;
+    text-align: center;
+    opacity: 0;
+    transition: opacity 400ms ease;
+    line-height: 2;
+  }
+
+  #gameover-stats.show { opacity: 1; }
+
+  #gameover-final-score {
+    font-size: 2.8rem;
+    font-weight: 700;
+    color: #00e5ff;
+    letter-spacing: 0.06em;
+  }
+
+  #gameover-details {
+    font-size: 0.95rem;
+    color: #888;
+    letter-spacing: 0.08em;
+  }
+
+  /* High score entry */
+  #highscore-section {
+    margin-top: 28px;
+    text-align: center;
+  }
+
+  #new-hs-label {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #00e5ff;
+    letter-spacing: 0.12em;
+    animation: hsPulse 1.5s ease-in-out infinite;
+  }
+
+  @keyframes hsPulse {
+    0%, 100% { text-shadow: 0 0 6px rgba(0,229,255,0.3); }
+    50%       { text-shadow: 0 0 18px rgba(0,229,255,0.8); }
+  }
+
+  #initials-entry {
+    margin-top: 14px;
+    font-size: 2.5rem;
+    font-weight: 700;
+    letter-spacing: 0.5em;
+    color: #f0f0f0;
+    min-width: 3ch;
+    text-align: center;
+  }
+
+  #initials-hint {
+    margin-top: 8px;
+    font-size: 0.8rem;
+    color: #555;
+    letter-spacing: 0.08em;
+    min-height: 1.2em;
+  }
+
+  /* Leaderboard */
+  #leaderboard {
+    margin-top: 20px;
+    font-size: 0.82rem;
+    color: #555;
+    letter-spacing: 0.05em;
+    text-align: center;
+    line-height: 1.9;
+  }
+
+  .lb-row { display: flex; gap: 16px; justify-content: center; }
+  .lb-row.current { color: #00e5ff; font-weight: 700; }
+  .lb-rank { width: 20px; text-align: right; }
+  .lb-init { width: 30px; text-align: center; }
+  .lb-score { width: 60px; text-align: right; }
+
+  #play-again-hint {
+    margin-top: 20px;
+    font-size: 0.8rem;
+    color: #444;
+    letter-spacing: 0.1em;
+  }
+</style>
+</head>
+<body>
+<div id="game-container">
+  <div id="hud">
+    <div id="hud-left">
+      <div id="avg-display">AVG ---</div>
+    </div>
+    <div id="hud-right">
+      <div id="score-display">0</div>
+      <div id="lives-display"></div>
+    </div>
+  </div>
+
+  <div id="flash-overlay"></div>
+
+  <!-- Letters are injected here dynamically -->
+  <div id="letters-layer" style="position:absolute;inset:0;pointer-events:none;"></div>
+
+  <!-- Announcement chars layer -->
+  <div id="ann-layer" style="position:absolute;inset:0;pointer-events:none;"></div>
+
+  <!-- Main screen (start / game over) -->
+  <div id="screen">
+    <!-- Start -->
+    <div id="start-screen">
+      <div id="start-title">REACT</div>
+      <div id="start-subtitle">Press any key to begin</div>
+      <div id="start-highscore"></div>
+    </div>
+
+    <!-- Game Over -->
+    <div id="gameover-screen" style="display:none;text-align:center;">
+      <div id="gameover-title">GAME OVER</div>
+      <div id="gameover-stats">
+        <div id="gameover-final-score"></div>
+        <div id="gameover-details"></div>
+      </div>
+      <div id="highscore-section" style="display:none;">
+        <div id="new-hs-label">NEW HIGH SCORE!</div>
+        <div id="initials-entry">_ _ _</div>
+        <div id="initials-hint"></div>
+      </div>
+      <div id="leaderboard"></div>
+      <div id="play-again-hint" style="display:none;">Press any key to play again</div>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+const GROUPS_PER_ROUND = 30;
+const TOTAL_LIVES = 3;
+const GAP_START = 3000;
+const GAP_MIN = 300;
+const GAP_STEP = 100;
+const STAGGER_MS = 300;
+const ANN_CHAR_STAGGER = 250;
+const ANN_HOLD = 1500;
+const ANN_FADE = 300;
+const SCORE_POPUP_DURATION = 600;
+const HUD_TOP_PAD = 70;
+const EDGE_PAD = 60;
+
+// ─── State ────────────────────────────────────────────────────────────────────
+const state = {
+  phase: 'start',      // 'start' | 'announcing' | 'playing' | 'gameover' | 'entering_initials'
+  round: 1,
+  groupIndex: 0,
+  score: 0,
+  lives: TOTAL_LIVES,
+  reactionTimes: [],   // all ms per correct hit
+  totalLetters: 0,
+  bestMs: Infinity,
+
+  // current group
+  currentGroup: [],    // array of { letter, el, appearTime }
+  nextExpected: 0,     // index into currentGroup
+  wrongPressedThisGroup: false,
+  groupFailed: false,  // group was failed (0 lives while processing)
+  pendingGameOver: false,
+
+  // timing
+  gapDelay: GAP_START,
+  groupTimeout: null,
+
+  // audio
+  audioCtx: null,
+
+  // initials entry
+  enteredInitials: [],
+  playerRank: -1,
+};
+
+// ─── DOM refs ─────────────────────────────────────────────────────────────────
+const $container = document.getElementById('game-container');
+const $lettersLayer = document.getElementById('letters-layer');
+const $annLayer = document.getElementById('ann-layer');
+const $screen = document.getElementById('screen');
+const $startScreen = document.getElementById('start-screen');
+const $gameoverScreen = document.getElementById('gameover-screen');
+const $scoreDisplay = document.getElementById('score-display');
+const $avgDisplay = document.getElementById('avg-display');
+const $livesDisplay = document.getElementById('lives-display');
+const $flashOverlay = document.getElementById('flash-overlay');
+const $startHighscore = document.getElementById('start-highscore');
+const $gameoverTitle = document.getElementById('gameover-title');
+const $gameoverStats = document.getElementById('gameover-stats');
+const $gameoverFinalScore = document.getElementById('gameover-final-score');
+const $gameoverDetails = document.getElementById('gameover-details');
+const $highscoreSection = document.getElementById('highscore-section');
+const $initialsEntry = document.getElementById('initials-entry');
+const $initialsHint = document.getElementById('initials-hint');
+const $leaderboard = document.getElementById('leaderboard');
+const $playAgainHint = document.getElementById('play-again-hint');
+
+// ─── Audio ────────────────────────────────────────────────────────────────────
+function initAudio() {
+  if (state.audioCtx) return;
+  try {
+    state.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  } catch(e) { state.audioCtx = null; }
+}
+
+function playTone({ freq = 440, endFreq = null, duration = 100, type = 'sine', gain = 0.1, startDelay = 0 } = {}) {
+  if (!state.audioCtx) return;
+  try {
+    const ctx = state.audioCtx;
+    const osc = ctx.createOscillator();
+    const gainNode = ctx.createGain();
+    osc.connect(gainNode);
+    gainNode.connect(ctx.destination);
+    osc.type = type;
+    const t = ctx.currentTime + startDelay;
+    osc.frequency.setValueAtTime(freq, t);
+    if (endFreq !== null) {
+      osc.frequency.linearRampToValueAtTime(endFreq, t + duration / 1000);
+    }
+    gainNode.gain.setValueAtTime(gain, t);
+    gainNode.gain.exponentialRampToValueAtTime(0.001, t + duration / 1000);
+    osc.start(t);
+    osc.stop(t + duration / 1000 + 0.01);
+  } catch(e) {}
+}
+
+function sfxAppear() {
+  playTone({ freq: 700, duration: 25, type: 'sine', gain: 0.08 });
+}
+function sfxAnnChar() {
+  playTone({ freq: 900, duration: 25, type: 'sine', gain: 0.07 });
+}
+function sfxCorrect() {
+  playTone({ freq: 500, endFreq: 900, duration: 70, type: 'sine', gain: 0.12 });
+}
+function sfxWrong() {
+  playTone({ freq: 130, duration: 100, type: 'square', gain: 0.1 });
+}
+function sfxLifeLost() {
+  playTone({ freq: 400, endFreq: 200, duration: 150, type: 'sine', gain: 0.08 });
+}
+function sfxGameOver() {
+  playTone({ freq: 600, duration: 150, type: 'sine', gain: 0.1, startDelay: 0 });
+  playTone({ freq: 400, duration: 150, type: 'sine', gain: 0.1, startDelay: 0.25 });
+  playTone({ freq: 250, duration: 150, type: 'sine', gain: 0.1, startDelay: 0.5 });
+}
+
+// ─── localStorage Leaderboard ─────────────────────────────────────────────────
+function loadLeaderboard() {
+  try {
+    return JSON.parse(localStorage.getItem('myelin_lb') || '[]');
+  } catch(e) { return []; }
+}
+
+function saveLeaderboard(lb) {
+  try {
+    localStorage.setItem('myelin_lb', JSON.stringify(lb));
+  } catch(e) {}
+}
+
+function getTopScore() {
+  const lb = loadLeaderboard();
+  return lb.length ? lb[0].score : null;
+}
+
+function qualifiesForLeaderboard(score) {
+  const lb = loadLeaderboard();
+  if (lb.length < 10) return true;
+  return score > lb[lb.length - 1].score;
+}
+
+function insertScore(initials, score, round) {
+  const lb = loadLeaderboard();
+  const entry = { initials: initials.toUpperCase(), score, round, date: new Date().toISOString().slice(0,10) };
+  lb.push(entry);
+  lb.sort((a, b) => b.score - a.score);
+  const top10 = lb.slice(0, 10);
+  saveLeaderboard(top10);
+  return top10.findIndex(e => e === entry || (e.initials === entry.initials && e.score === entry.score && e.date === entry.date));
+}
+
+// ─── HUD ──────────────────────────────────────────────────────────────────────
+function renderHUD() {
+  $scoreDisplay.textContent = state.score;
+
+  // lives
+  $livesDisplay.innerHTML = '';
+  for (let i = 0; i < TOTAL_LIVES; i++) {
+    const pip = document.createElement('span');
+    pip.className = 'life-pip' + (i >= state.lives ? ' lost' : '');
+    pip.id = `pip-${i}`;
+    pip.textContent = i < state.lives ? '●' : '○';
+    $livesDisplay.appendChild(pip);
+  }
+
+  // avg
+  if (state.reactionTimes.length === 0) {
+    $avgDisplay.textContent = 'AVG ---';
+  } else {
+    const avg = Math.round(state.reactionTimes.reduce((a,b)=>a+b,0) / state.reactionTimes.length);
+    $avgDisplay.textContent = `AVG ${avg}ms`;
+  }
+}
+
+function flashLifePip() {
+  // After decrement, state.lives is the new count.
+  // Pips are indexed 0..TOTAL_LIVES-1, with pip-0 being the leftmost/first.
+  // The pip that just got lost is at index state.lives (it was the last filled one).
+  const lostPip = document.getElementById(`pip-${state.lives}`);
+  if (!lostPip) return;
+  lostPip.classList.add('flash-red');
+  setTimeout(() => lostPip.classList.remove('flash-red'), 300);
+}
+
+// ─── Flash overlay ────────────────────────────────────────────────────────────
+function flashRed() {
+  $flashOverlay.classList.add('active');
+  setTimeout(() => $flashOverlay.classList.remove('active'), 100);
+}
+
+// ─── Letter position ──────────────────────────────────────────────────────────
+function getLetterSize() {
+  // approximate rendered em in px
+  const tmp = document.createElement('span');
+  tmp.style.cssText = `position:absolute;visibility:hidden;font-size:clamp(3rem,6vw,5rem);font-weight:700;font-family:Inter,'Helvetica Neue',Helvetica,Arial,sans-serif;`;
+  tmp.textContent = 'A';
+  document.body.appendChild(tmp);
+  const rect = tmp.getBoundingClientRect();
+  document.body.removeChild(tmp);
+  return { w: rect.width, h: rect.height };
+}
+
+let cachedLetterSize = null;
+function letterSize() {
+  if (!cachedLetterSize) cachedLetterSize = getLetterSize();
+  return cachedLetterSize;
+}
+
+function randomPos(existingPositions) {
+  const { w, h } = letterSize();
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+
+  const minX = EDGE_PAD;
+  const maxX = vw - EDGE_PAD - w;
+  const minY = HUD_TOP_PAD + EDGE_PAD;
+  const maxY = vh - EDGE_PAD - h;
+
+  const maxAttempts = 50;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const x = minX + Math.random() * (maxX - minX);
+    const y = minY + Math.random() * (maxY - minY);
+
+    // check overlap with existing
+    let ok = true;
+    for (const pos of existingPositions) {
+      const dx = Math.abs(pos.x - x);
+      const dy = Math.abs(pos.y - y);
+      if (dx < w + 20 && dy < h + 10) { ok = false; break; }
+    }
+    if (ok) return { x, y };
+  }
+  // fallback
+  const x = minX + Math.random() * (maxX - minX);
+  const y = minY + Math.random() * (maxY - minY);
+  return { x, y };
+}
+
+// ─── Alphabet helpers ─────────────────────────────────────────────────────────
+const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+
+function randomLetter(exclude = []) {
+  const pool = ALPHABET.filter(l => !exclude.includes(l));
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+function buildGroup(size, excludeFirst = null) {
+  const letters = [];
+  for (let i = 0; i < size; i++) {
+    const exc = [...letters, ...(i === 0 && excludeFirst ? [excludeFirst] : [])];
+    letters.push(randomLetter(exc));
+  }
+  return letters;
+}
+
+// ─── Score popup ──────────────────────────────────────────────────────────────
+function showScorePopup(x, y, points) {
+  const el = document.createElement('div');
+  el.className = 'score-popup';
+  el.textContent = `+${points}`;
+  el.style.left = `${x}px`;
+  el.style.top = `${y}px`;
+  $container.appendChild(el);
+  setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, SCORE_POPUP_DURATION);
+}
+
+// ─── Clear layers ─────────────────────────────────────────────────────────────
+function clearLetters() {
+  $lettersLayer.innerHTML = '';
+  state.currentGroup = [];
+  state.nextExpected = 0;
+}
+
+function clearAnn() {
+  $annLayer.innerHTML = '';
+}
+
+// ─── Game flow ────────────────────────────────────────────────────────────────
+function showStartScreen() {
+  state.phase = 'start';
+  $screen.classList.remove('hidden');
+  $startScreen.style.display = '';
+  $gameoverScreen.style.display = 'none';
+  $lettersLayer.innerHTML = '';
+  $annLayer.innerHTML = '';
+
+  const top = getTopScore();
+  $startHighscore.textContent = top !== null ? `HIGH SCORE: ${top}` : '';
+}
+
+function startGame() {
+  state.round = 1;
+  state.groupIndex = 0;
+  state.score = 0;
+  state.lives = TOTAL_LIVES;
+  state.reactionTimes = [];
+  state.totalLetters = 0;
+  state.bestMs = Infinity;
+  state.gapDelay = GAP_START;
+  state.pendingGameOver = false;
+  state.lastLetter = null;
+
+  $screen.classList.add('hidden');
+  $startScreen.style.display = 'none';
+  $gameoverScreen.style.display = 'none';
+  clearLetters();
+  clearAnn();
+  renderHUD();
+
+  announceRound(state.round, () => beginRound());
+}
+
+function beginRound() {
+  state.groupIndex = 0;
+  state.gapDelay = GAP_START;
+  state.phase = 'playing';
+  clearLetters();
+  scheduleNextGroup();
+}
+
+function scheduleNextGroup() {
+  if (state.phase !== 'playing') return;
+  state.groupTimeout = setTimeout(() => showGroup(), state.gapDelay);
+}
+
+function showGroup() {
+  if (state.phase !== 'playing') return;
+
+  clearLetters();
+  state.wrongPressedThisGroup = false;
+  state.groupFailed = false;
+
+  const groupSize = state.round;
+  const excludeFirst = state.lastLetter || null;
+  const letters = buildGroup(groupSize, excludeFirst);
+
+  // positions
+  const positions = [];
+  const posList = [];
+  for (let i = 0; i < groupSize; i++) {
+    const pos = randomPos(posList);
+    posList.push(pos);
+    positions.push(pos);
+  }
+
+  state.currentGroup = letters.map((letter, i) => ({
+    letter,
+    el: null,
+    appearTime: null,
+    pos: positions[i],
+    hit: false,
+  }));
+  state.nextExpected = 0;
+
+  const isFirstRound = state.round === 1;
+
+  // Save reference to current group for stale closure check
+  const group = state.currentGroup;
+
+  function showLetterAt(index) {
+    // if this group was already cleared (e.g. game over mid-stagger), skip
+    if (state.currentGroup !== group) return;
+    const item = state.currentGroup[index];
+    const el = document.createElement('div');
+    // Dim if not the current active target
+    const isActiveTarget = (index === state.nextExpected);
+    el.className = 'letter-el' + (!isActiveTarget ? ' dim' : '');
+    el.textContent = item.letter;
+    el.style.left = `${item.pos.x}px`;
+    el.style.top = `${item.pos.y}px`;
+    $lettersLayer.appendChild(el);
+    item.el = el;
+    item.appearTime = performance.now();
+    sfxAppear();
+
+    // glow fade after appear
+    setTimeout(() => {
+      if (el.parentNode) {
+        el.classList.remove('glow-fade');
+        void el.offsetWidth;
+        el.classList.add('glow-fade');
+      }
+    }, 150);
+  }
+
+  if (isFirstRound) {
+    showLetterAt(0);
+  } else {
+    // stagger
+    for (let i = 0; i < groupSize; i++) {
+      setTimeout(() => showLetterAt(i), i * STAGGER_MS);
+    }
+  }
+}
+
+function activateNextLetter() {
+  const idx = state.nextExpected;
+  if (idx >= state.currentGroup.length) return;
+  const item = state.currentGroup[idx];
+  if (!item.el) return;
+  item.el.classList.remove('dim');
+  item.el.classList.add('activating');
+  item.appearTime = performance.now(); // reset reaction clock to when it became active
+}
+
+function onGroupComplete() {
+  // track last letter for next group no-repeat rule
+  if (state.currentGroup.length > 0) {
+    state.lastLetter = state.currentGroup[state.currentGroup.length - 1].letter;
+  }
+
+  if (state.pendingGameOver) {
+    triggerGameOver();
+    return;
+  }
+
+  state.groupIndex++;
+  // decrease gap
+  state.gapDelay = Math.max(GAP_MIN, state.gapDelay - GAP_STEP);
+
+  if (state.groupIndex >= GROUPS_PER_ROUND) {
+    // advance round
+    state.round++;
+    announceRound(state.round, () => beginRound());
+  } else {
+    scheduleNextGroup();
+  }
+}
+
+// ─── Key handling ─────────────────────────────────────────────────────────────
+document.addEventListener('keydown', handleKey);
+
+function handleKey(e) {
+  const key = e.key;
+
+  if (state.phase === 'start') {
+    e.preventDefault();
+    initAudio();
+    startGame();
+    return;
+  }
+
+  if (state.phase === 'playing') {
+    if (!/^[a-zA-Z]$/.test(key)) return;
+    e.preventDefault();
+    const pressed = key.toUpperCase();
+    handleGameKey(pressed);
+    return;
+  }
+
+  if (state.phase === 'entering_initials') {
+    if (/^[a-zA-Z]$/.test(key)) {
+      e.preventDefault();
+      handleInitialsKey(key.toUpperCase());
+    } else if (key === 'Backspace') {
+      e.preventDefault();
+      handleInitialsBackspace();
+    } else if (key === 'Enter') {
+      e.preventDefault();
+      handleInitialsEnter();
+    }
+    return;
+  }
+
+  if (state.phase === 'gameover') {
+    e.preventDefault();
+    initAudio();
+    showStartScreen();
+    return;
+  }
+}
+
+function handleGameKey(letter) {
+  const group = state.currentGroup;
+  if (group.length === 0) return;
+
+  const idx = state.nextExpected;
+  if (idx >= group.length) return; // all hit
+
+  // Check if the current expected letter's element has appeared yet
+  const expectedItem = group[idx];
+  if (!expectedItem.el) return; // letter hasn't appeared yet (stagger)
+
+  // Also check: in staggered mode, if letter isn't fully visible yet (dim means not active target)
+  // Actually by spec: "next expected letter: full opacity". Letters after that are dim.
+  // The active target is idx.
+
+  if (letter === expectedItem.letter) {
+    // Correct!
+    const now = performance.now();
+    const reactionMs = Math.round(now - expectedItem.appearTime);
+    const points = Math.max(10, Math.round(1000 - reactionMs * 2));
+
+    state.score += points;
+    state.reactionTimes.push(reactionMs);
+    state.totalLetters++;
+    if (reactionMs < state.bestMs) state.bestMs = reactionMs;
+
+    // animate letter
+    const el = expectedItem.el;
+    el.classList.remove('dim', 'activating', 'glow-fade');
+    el.classList.add('correct-anim');
+    sfxCorrect();
+
+    // score popup
+    const { w, h } = letterSize();
+    showScorePopup(expectedItem.pos.x + w / 2 - 20, expectedItem.pos.y - 5, points);
+
+    setTimeout(() => {
+      if (el.parentNode) el.parentNode.removeChild(el);
+    }, 180);
+
+    state.nextExpected++;
+    renderHUD();
+
+    // activate next if exists
+    if (state.nextExpected < group.length) {
+      activateNextLetter();
+    } else {
+      // group complete
+      setTimeout(() => onGroupComplete(), 100);
+    }
+
+  } else {
+    // Wrong key
+    if (!state.wrongPressedThisGroup) {
+      state.wrongPressedThisGroup = true;
+      sfxWrong();
+      sfxLifeLost();
+      flashRed();
+
+      state.lives--;
+      renderHUD();
+      flashLifePip();
+
+      // shake the expected letter
+      const el = expectedItem.el;
+      el.classList.remove('shake-anim');
+      void el.offsetWidth;
+      el.classList.add('shake-anim');
+      setTimeout(() => el.classList.remove('shake-anim'), 200);
+
+      if (state.lives <= 0) {
+        state.pendingGameOver = true;
+      }
+    }
+    // subsequent wrong presses: no effect
+  }
+}
+
+// ─── Round Announcement ───────────────────────────────────────────────────────
+function announceRound(roundNum, callback) {
+  state.phase = 'announcing';
+  clearAnn();
+
+  const text = `ROUND ${roundNum}`;
+  const chars = text.split('');
+
+  setTimeout(() => {
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const charSize = Math.max(40, Math.min(80, vw * 0.06));
+    const pad = 40;
+    const minX = pad;
+    const maxX = vw - pad - charSize * 0.6;
+    const minY = HUD_TOP_PAD + pad;
+    const maxY = vh - pad - charSize;
+
+    const spawnedEls = [];
+    let charIdx = 0;
+
+    function spawnNext() {
+      if (charIdx >= chars.length) {
+        // All spawned, hold then fade out
+        setTimeout(() => {
+          spawnedEls.forEach(el => el.classList.add('fade-out'));
+          setTimeout(() => {
+            clearAnn();
+            setTimeout(callback, 1000);
+          }, ANN_FADE + 50);
+        }, ANN_HOLD);
+        return;
+      }
+
+      const ch = chars[charIdx];
+      charIdx++;
+
+      if (ch === ' ') {
+        setTimeout(spawnNext, 0);
+        return;
+      }
+
+      const x = minX + Math.random() * (maxX - minX);
+      const y = minY + Math.random() * (maxY - minY);
+
+      const el = document.createElement('div');
+      el.className = 'ann-char';
+      el.textContent = ch;
+      el.style.left = `${x}px`;
+      el.style.top = `${y}px`;
+      $annLayer.appendChild(el);
+      spawnedEls.push(el);
+      sfxAnnChar();
+
+      setTimeout(spawnNext, ANN_CHAR_STAGGER);
+    }
+
+    spawnNext();
+
+  }, 1000); // 1 second blank before announcement
+}
+
+// ─── Game Over ────────────────────────────────────────────────────────────────
+function triggerGameOver() {
+  state.phase = 'gameover';
+  clearLetters();
+  clearAnn();
+  sfxGameOver();
+
+  // save high score if applicable
+  const qualifies = qualifiesForLeaderboard(state.score);
+
+  $screen.classList.remove('hidden');
+  $startScreen.style.display = 'none';
+  $gameoverScreen.style.display = '';
+  $gameoverTitle.className = '';
+  $gameoverTitle.style.opacity = '0';
+  $gameoverStats.classList.remove('show');
+  $highscoreSection.style.display = 'none';
+  $leaderboard.innerHTML = '';
+  $playAgainHint.style.display = 'none';
+
+  setTimeout(() => {
+    // Show "GAME OVER"
+    $gameoverTitle.style.opacity = '1';
+    $gameoverTitle.classList.add('show');
+
+    // Flicker
+    setTimeout(() => {
+      $gameoverTitle.classList.add('flicker');
+    }, 50);
+
+    // Stats
+    setTimeout(() => {
+      const avgMs = state.reactionTimes.length
+        ? Math.round(state.reactionTimes.reduce((a,b)=>a+b,0)/state.reactionTimes.length)
+        : 0;
+      const bestMs = state.bestMs === Infinity ? 0 : state.bestMs;
+
+      $gameoverFinalScore.textContent = state.score;
+      $gameoverDetails.innerHTML =
+        `Reached Round ${state.round}<br>` +
+        `Avg ${avgMs}ms &nbsp;·&nbsp; Best ${bestMs}ms<br>` +
+        `${state.totalLetters} letters`;
+
+      $gameoverStats.classList.add('show');
+
+      if (qualifies && state.score > 0) {
+        setTimeout(() => showInitialsEntry(), 600);
+      } else {
+        showLeaderboard(-1);
+        setTimeout(() => {
+          $playAgainHint.style.display = '';
+          state.phase = 'gameover';
+        }, 400);
+      }
+    }, 500 + 50);
+  }, 500);
+}
+
+// ─── Initials Entry ───────────────────────────────────────────────────────────
+function showInitialsEntry() {
+  state.phase = 'entering_initials';
+  state.enteredInitials = [];
+  $highscoreSection.style.display = '';
+  updateInitialsDisplay();
+}
+
+function updateInitialsDisplay() {
+  const chars = state.enteredInitials;
+  const display = [];
+  for (let i = 0; i < 3; i++) {
+    display.push(chars[i] || '_');
+  }
+  $initialsEntry.textContent = display.join(' ');
+
+  if (chars.length === 3) {
+    $initialsHint.textContent = 'Press Enter to confirm';
+  } else {
+    $initialsHint.textContent = '';
+  }
+}
+
+function handleInitialsKey(letter) {
+  if (state.enteredInitials.length < 3) {
+    state.enteredInitials.push(letter);
+    updateInitialsDisplay();
+  }
+}
+
+function handleInitialsBackspace() {
+  if (state.enteredInitials.length > 0) {
+    state.enteredInitials.pop();
+    updateInitialsDisplay();
+  }
+}
+
+function handleInitialsEnter() {
+  if (state.enteredInitials.length !== 3) return;
+  const initials = state.enteredInitials.join('');
+  const rank = insertScore(initials, state.score, state.round);
+  state.playerRank = rank;
+  $highscoreSection.style.display = 'none';
+  showLeaderboard(rank);
+  $playAgainHint.style.display = '';
+  state.phase = 'gameover';
+}
+
+function showLeaderboard(highlightRank) {
+  const lb = loadLeaderboard();
+  $leaderboard.innerHTML = '';
+  lb.forEach((entry, i) => {
+    const row = document.createElement('div');
+    row.className = 'lb-row' + (i === highlightRank ? ' current' : '');
+
+    const rank = document.createElement('span');
+    rank.className = 'lb-rank';
+    rank.textContent = `${i+1}.`;
+
+    const init = document.createElement('span');
+    init.className = 'lb-init';
+    init.textContent = entry.initials;
+
+    const score = document.createElement('span');
+    score.className = 'lb-score';
+    score.textContent = entry.score;
+
+    row.appendChild(rank);
+    row.appendChild(init);
+    row.appendChild(score);
+    $leaderboard.appendChild(row);
+  });
+}
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+// invalidate cached letter size on resize
+window.addEventListener('resize', () => {
+  cachedLetterSize = null;
+});
+
+showStartScreen();
+</script>
+</body>
+</html>
