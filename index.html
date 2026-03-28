@@ -329,12 +329,13 @@
     letter-spacing: 0.1em;
   }
 
-  /* Announcement chars */
+  /* Announcement chars — outlined, distinct from gameplay letters */
   .ann-char {
     position: absolute;
     font-size: clamp(2.5rem, 6vw, 5rem);
     font-weight: 800;
-    color: #f0f0f0;
+    color: transparent;
+    -webkit-text-stroke: 2px rgba(140, 160, 170, 0.75);
     letter-spacing: 0.05em;
     pointer-events: none;
     transform-origin: center;
@@ -462,6 +463,132 @@
     letter-spacing: 0.1em;
   }
 
+  /* ── Bonus round ── */
+  #bonus-overlay {
+    position: absolute;
+    inset: 0;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    z-index: 90;
+  }
+
+  #bonus-timer-wrap {
+    width: clamp(220px, 40vw, 320px);
+    height: 5px;
+    background: #111116;
+    border-radius: 3px;
+    overflow: hidden;
+  }
+
+  #bonus-timer-bar {
+    height: 100%;
+    width: 100%;
+    background: #00e5ff;
+    border-radius: 3px;
+    transform-origin: left;
+  }
+
+  #bonus-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: clamp(6px, 1.2vw, 10px);
+  }
+
+  .bonus-cell {
+    width: clamp(62px, 9vw, 88px);
+    height: clamp(62px, 9vw, 88px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: clamp(1.4rem, 3vw, 2.2rem);
+    font-weight: 700;
+    color: #1e1e26;
+    background: #0c0c10;
+    border: 1px solid #1a1a22;
+    border-radius: 5px;
+    transition: color 70ms ease, background 70ms ease, border-color 70ms ease, box-shadow 70ms ease;
+    will-change: transform;
+  }
+
+  .bonus-cell.lit {
+    color: #f0f0f0;
+    background: #0d1c22;
+    border-color: #00e5ff;
+    box-shadow: 0 0 18px rgba(0, 229, 255, 0.35), inset 0 0 8px rgba(0, 229, 255, 0.08);
+  }
+
+  .bonus-cell.hit {
+    background: rgba(0, 229, 255, 0.18);
+    border-color: #00e5ff;
+    box-shadow: 0 0 28px rgba(0, 229, 255, 0.55);
+  }
+
+  @keyframes bonusVibrate {
+    0%   { transform: translate(0,     0); }
+    20%  { transform: translate(-2px,  1px); }
+    40%  { transform: translate( 2px, -1px); }
+    60%  { transform: translate(-1px,  2px); }
+    80%  { transform: translate( 1px, -1px); }
+    100% { transform: translate(0,     0); }
+  }
+
+  .bonus-cell.vibrating {
+    animation: bonusVibrate 110ms ease-in-out infinite;
+  }
+
+  @keyframes bonusCellExplode {
+    0%   { transform: scale(1) translate(0, 0); opacity: 1; }
+    25%  { transform: scale(1.35) translate(0, 0); opacity: 1; }
+    100% { transform: scale(0.4) translate(var(--ex, 0px), var(--ey, -80px)); opacity: 0; }
+  }
+
+  .bonus-cell.exploding {
+    animation: bonusCellExplode 420ms ease-out forwards !important;
+  }
+
+  #bonus-score-label {
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: #00e5ff;
+    letter-spacing: 0.12em;
+    min-height: 1.2em;
+  }
+
+  #bonus-countdown {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: clamp(4rem, 12vw, 9rem);
+    font-weight: 800;
+    color: #f0f0f0;
+    pointer-events: none;
+    z-index: 95;
+    letter-spacing: 0.05em;
+  }
+
+  @keyframes countPop {
+    0%   { transform: translate(-50%, -50%) scale(1.8); opacity: 0; }
+    40%  { transform: translate(-50%, -50%) scale(0.95); opacity: 1; }
+    100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+  }
+
+  #bonus-countdown.pop {
+    animation: countPop 250ms cubic-bezier(0, 0, 0.2, 1) forwards;
+  }
+
+  @keyframes countFade {
+    from { opacity: 1; }
+    to   { opacity: 0; }
+  }
+
+  #bonus-countdown.fade {
+    animation: countFade 180ms ease forwards;
+  }
+
   /* Bonus bar */
   #bonus-bar-container {
     position: absolute;
@@ -533,6 +660,14 @@
 
   <!-- Announcement chars layer -->
   <div id="ann-layer" style="position:absolute;inset:0;pointer-events:none;"></div>
+
+  <!-- Bonus round overlay -->
+  <div id="bonus-overlay">
+    <div id="bonus-timer-wrap"><div id="bonus-timer-bar"></div></div>
+    <div id="bonus-grid"></div>
+    <div id="bonus-score-label"></div>
+    <div id="bonus-countdown"></div>
+  </div>
 
   <!-- Bonus bar -->
   <div id="bonus-bar-container">
@@ -610,6 +745,18 @@ const state = {
 
   // bonus bar
   bonusChunks: 0,
+
+  // bonus round
+  bonusActive: false,
+  bonusGrid: [],
+  bonusLitIndex: -1,
+  bonusLitAppearTime: 0,
+  bonusScore: 0,
+  bonusTimerStart: 0,
+  bonusTimerAnimId: null,
+  bonusLitTimeout: null,
+  bonusScheduleTimeout: null,
+  bonusCallback: null,
 
   // score animation
   displayedScore: 0,
@@ -715,6 +862,17 @@ function sfxGameOver() {
   playTone({ freq: 600, duration: 150, type: 'sine', gain: 0.1, startDelay: 0 });
   playTone({ freq: 400, duration: 150, type: 'sine', gain: 0.1, startDelay: 0.25 });
   playTone({ freq: 250, duration: 150, type: 'sine', gain: 0.1, startDelay: 0.5 });
+}
+function sfxBonusCountdown() {
+  playTone({ freq: 660, duration: 80, type: 'sine', gain: 0.1 });
+}
+function sfxBonusGo() {
+  playTone({ freq: 880, endFreq: 1100, duration: 120, type: 'sine', gain: 0.13 });
+}
+function sfxBonusExplode() {
+  for (let i = 0; i < 4; i++) {
+    playTone({ freq: 700 - i * 130, endFreq: 120, duration: 220, type: 'sine', gain: 0.07, startDelay: i * 0.07 });
+  }
 }
 
 // ─── localStorage Leaderboard ─────────────────────────────────────────────────
@@ -956,6 +1114,11 @@ function startGame() {
   state.pendingGameOver = false;
   state.lastLetter = null;
   state.bonusChunks = 0;
+  state.bonusActive = false;
+  clearTimeout(state.bonusLitTimeout);
+  clearTimeout(state.bonusScheduleTimeout);
+  if (state.bonusTimerAnimId) cancelAnimationFrame(state.bonusTimerAnimId);
+  document.getElementById('bonus-overlay').style.display = 'none';
 
   $screen.classList.add('hidden');
   $startScreen.style.display = 'none';
@@ -1079,8 +1242,13 @@ function onGroupComplete() {
 
   if (state.groupIndex >= GROUPS_PER_ROUND) {
     // advance round
+    const completedRound = state.round;
     state.round++;
-    announceRound(state.round, () => beginRound());
+    if (completedRound % 3 === 0) {
+      enterBonusRound(() => announceRound(state.round, () => beginRound()));
+    } else {
+      announceRound(state.round, () => beginRound());
+    }
   } else {
     scheduleNextGroup();
   }
@@ -1104,6 +1272,13 @@ function handleKey(e) {
     e.preventDefault();
     const pressed = key.toUpperCase();
     handleGameKey(pressed);
+    return;
+  }
+
+  if (state.phase === 'bonus') {
+    if (!/^[a-zA-Z]$/.test(key)) return;
+    e.preventDefault();
+    handleBonusKey(key.toUpperCase());
     return;
   }
 
@@ -1278,6 +1453,215 @@ function addBonusChunk() {
   } else {
     updateBonusBar();
   }
+}
+
+// ─── Bonus Round ──────────────────────────────────────────────────────────────
+const BONUS_DURATION     = 20000;
+const BONUS_LIT_START    = 950;   // ms letter stays lit at beginning
+const BONUS_LIT_END      = 380;   // ms at end of round
+const BONUS_GAP_START    = 320;   // ms between lit-ups at beginning
+const BONUS_GAP_END      = 100;   // ms between lit-ups at end
+
+const $bonusOverlay   = document.getElementById('bonus-overlay');
+const $bonusTimerBar  = document.getElementById('bonus-timer-bar');
+const $bonusGrid      = document.getElementById('bonus-grid');
+const $bonusScoreLabel = document.getElementById('bonus-score-label');
+const $bonusCountdown  = document.getElementById('bonus-countdown');
+
+function bonusLitDuration() {
+  const p = Math.min(1, (performance.now() - state.bonusTimerStart) / BONUS_DURATION);
+  return Math.round(BONUS_LIT_START + (BONUS_LIT_END - BONUS_LIT_START) * p);
+}
+function bonusGapDuration() {
+  const p = Math.min(1, (performance.now() - state.bonusTimerStart) / BONUS_DURATION);
+  return Math.round(BONUS_GAP_START + (BONUS_GAP_END - BONUS_GAP_START) * p);
+}
+
+function enterBonusRound(callback) {
+  state.phase = 'bonus';
+  state.bonusActive = false;
+  state.bonusGrid = [];
+  state.bonusLitIndex = -1;
+  state.bonusScore = 0;
+  state.bonusCallback = callback;
+
+  // 9 unique letters
+  const pool = [...ALPHABET];
+  const letters = [];
+  for (let i = 0; i < 9; i++) {
+    const idx = Math.floor(Math.random() * pool.length);
+    letters.push(pool.splice(idx, 1)[0]);
+  }
+
+  $bonusGrid.innerHTML = '';
+  letters.forEach(letter => {
+    const cell = document.createElement('div');
+    cell.className = 'bonus-cell';
+    cell.textContent = letter;
+    $bonusGrid.appendChild(cell);
+    state.bonusGrid.push({ letter, el: cell });
+  });
+
+  $bonusTimerBar.style.width = '100%';
+  $bonusTimerBar.style.background = '#00e5ff';
+  $bonusScoreLabel.textContent = '';
+  $bonusCountdown.className = '';
+  $bonusCountdown.textContent = '';
+
+  // Grid hidden during countdown; timer hidden until GO
+  $bonusGrid.style.visibility = 'hidden';
+  $bonusTimerBar.parentElement.style.visibility = 'hidden';
+  $bonusScoreLabel.style.visibility = 'hidden';
+
+  $bonusOverlay.style.display = 'flex';
+
+  // Run countdown 3 → 2 → 1 → GO
+  const steps = [
+    { text: '3', sound: sfxBonusCountdown },
+    { text: '2', sound: sfxBonusCountdown },
+    { text: '1', sound: sfxBonusCountdown },
+    { text: 'GO', sound: sfxBonusGo },
+  ];
+  let si = 0;
+  function showStep() {
+    if (si >= steps.length) {
+      // Start round
+      $bonusCountdown.className = 'fade';
+      setTimeout(() => { $bonusCountdown.textContent = ''; }, 180);
+      $bonusGrid.style.visibility = '';
+      $bonusTimerBar.parentElement.style.visibility = '';
+      $bonusScoreLabel.style.visibility = '';
+      $bonusScoreLabel.textContent = 'BONUS';
+      startBonusTimer();
+      scheduleBonusLit();
+      return;
+    }
+    const step = steps[si++];
+    step.sound();
+    $bonusCountdown.className = '';
+    void $bonusCountdown.offsetWidth;
+    $bonusCountdown.textContent = step.text;
+    $bonusCountdown.className = 'pop';
+    setTimeout(showStep, 750);
+  }
+  setTimeout(showStep, 600); // brief blank before countdown starts
+}
+
+function startBonusTimer() {
+  state.bonusTimerStart = performance.now();
+  state.bonusActive = true;
+  tickBonusTimer();
+}
+
+function tickBonusTimer() {
+  if (!state.bonusActive) return;
+  const elapsed = performance.now() - state.bonusTimerStart;
+  const remaining = Math.max(0, BONUS_DURATION - elapsed);
+  const frac = remaining / BONUS_DURATION;
+
+  $bonusTimerBar.style.width = `${frac * 100}%`;
+  if (frac > 0.4)       $bonusTimerBar.style.background = '#00e5ff';
+  else if (frac > 0.15) $bonusTimerBar.style.background = '#ffcc00';
+  else                  $bonusTimerBar.style.background = '#ff2244';
+
+  // Last 3 seconds: vibrate cells
+  if (remaining <= 3000) {
+    state.bonusGrid.forEach(item => item.el.classList.add('vibrating'));
+  }
+
+  if (remaining <= 0) {
+    endBonusRound();
+    return;
+  }
+  state.bonusTimerAnimId = requestAnimationFrame(() => tickBonusTimer());
+}
+
+function scheduleBonusLit() {
+  if (!state.bonusActive) return;
+  state.bonusScheduleTimeout = setTimeout(() => {
+    if (!state.bonusActive) return;
+    lightUpBonusCell();
+  }, bonusGapDuration());
+}
+
+function lightUpBonusCell() {
+  if (!state.bonusActive) return;
+  // Pick a random cell, avoid repeating the last one
+  const available = state.bonusGrid.map((_, i) => i).filter(i => i !== state.bonusLitIndex);
+  const idx = available[Math.floor(Math.random() * available.length)];
+  state.bonusLitIndex = idx;
+  state.bonusLitAppearTime = performance.now();
+
+  const item = state.bonusGrid[idx];
+  item.el.classList.add('lit');
+  sfxAppear();
+
+  const dur = bonusLitDuration();
+  state.bonusLitTimeout = setTimeout(() => {
+    if (!state.bonusActive) return;
+    item.el.classList.remove('lit');
+    state.bonusLitIndex = -1;
+    scheduleBonusLit();
+  }, dur);
+}
+
+function handleBonusKey(letter) {
+  if (!state.bonusActive || state.bonusLitIndex < 0) return;
+  const litItem = state.bonusGrid[state.bonusLitIndex];
+  if (letter !== litItem.letter) return; // wrong key — no penalty
+
+  const reactionMs = Math.round(performance.now() - state.bonusLitAppearTime);
+  const pts = Math.max(50, Math.round(2000 / Math.max(reactionMs, 40)));
+  state.bonusScore += pts;
+  $bonusScoreLabel.textContent = `BONUS +${formatScore(state.bonusScore)}`;
+
+  sfxCorrect();
+  clearTimeout(state.bonusLitTimeout);
+
+  // Brief hit flash then clear
+  litItem.el.classList.remove('lit');
+  litItem.el.classList.add('hit');
+  setTimeout(() => litItem.el.classList.remove('hit'), 130);
+  state.bonusLitIndex = -1;
+
+  // Score popup near cell
+  const rect = litItem.el.getBoundingClientRect();
+  const cx = rect.left + rect.width / 2 - $container.getBoundingClientRect().left;
+  const cy = rect.top + rect.height / 2 - $container.getBoundingClientRect().top;
+  showScorePopup(cx - 20, cy - 10, pts);
+
+  scheduleBonusLit();
+}
+
+function endBonusRound() {
+  state.bonusActive = false;
+  if (state.bonusTimerAnimId) { cancelAnimationFrame(state.bonusTimerAnimId); state.bonusTimerAnimId = null; }
+  clearTimeout(state.bonusLitTimeout);
+  clearTimeout(state.bonusScheduleTimeout);
+
+  // Clear any lit/vibrating state
+  state.bonusGrid.forEach(item => item.el.classList.remove('lit', 'vibrating'));
+
+  sfxBonusExplode();
+
+  // Explode each cell with a random direction
+  state.bonusGrid.forEach((item, i) => {
+    const angle = (Math.random() * Math.PI * 2);
+    const dist  = 80 + Math.random() * 120;
+    item.el.style.setProperty('--ex', `${Math.round(Math.cos(angle) * dist)}px`);
+    item.el.style.setProperty('--ey', `${Math.round(Math.sin(angle) * dist - 60)}px`);
+    setTimeout(() => item.el.classList.add('exploding'), i * 35);
+  });
+
+  // Add bonus score to total and animate counter
+  state.score += state.bonusScore;
+  animateScoreTo(state.score);
+
+  // Hide overlay then continue
+  setTimeout(() => {
+    $bonusOverlay.style.display = 'none';
+    state.bonusCallback();
+  }, 9 * 35 + 520);
 }
 
 // ─── Round Announcement ───────────────────────────────────────────────────────
