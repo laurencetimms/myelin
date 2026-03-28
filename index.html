@@ -216,6 +216,11 @@
     animation: shakeLetter 200ms ease-out forwards !important;
   }
 
+  .letter-el.red {
+    color: #ff2244;
+    text-shadow: 0 0 24px rgba(255, 34, 68, 0.25);
+  }
+
   /* Score popup */
   .score-popup {
     position: absolute;
@@ -413,6 +418,51 @@
     color: #444;
     letter-spacing: 0.1em;
   }
+
+  /* Bonus bar */
+  #bonus-bar-container {
+    position: absolute;
+    bottom: 22px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: none;
+    z-index: 100;
+    pointer-events: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+  }
+
+  #bonus-bar {
+    display: flex;
+    gap: 3px;
+    align-items: center;
+  }
+
+  .bonus-chunk {
+    width: 14px;
+    height: 5px;
+    background: #111116;
+    border: 1px solid #222228;
+    border-radius: 1px;
+    transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+  }
+
+  .bonus-chunk.filled {
+    background: #00e5ff;
+    border-color: #00e5ff;
+    box-shadow: 0 0 4px rgba(0, 229, 255, 0.4);
+  }
+
+  @keyframes bonusFill {
+    0%   { opacity: 1; transform: translateX(-50%) scaleX(1); }
+    40%  { opacity: 1; transform: translateX(-50%) scaleX(1.04); }
+    100% { opacity: 0; transform: translateX(-50%) scaleX(1); }
+  }
+
+  #bonus-bar-container.flash {
+    animation: bonusFill 600ms ease forwards;
+  }
 </style>
 </head>
 <body>
@@ -440,6 +490,11 @@
 
   <!-- Announcement chars layer -->
   <div id="ann-layer" style="position:absolute;inset:0;pointer-events:none;"></div>
+
+  <!-- Bonus bar -->
+  <div id="bonus-bar-container">
+    <div id="bonus-bar"></div>
+  </div>
 
   <!-- Main screen (start / game over) -->
   <div id="screen">
@@ -484,6 +539,8 @@ const ANN_FADE = 300;
 const SCORE_POPUP_DURATION = 600;
 const HUD_TOP_PAD = 70;
 const EDGE_PAD = 60;
+const BONUS_BAR_MAX = 24;
+const ROUNDS_PER_CYCLE = 4;
 
 // ─── State ────────────────────────────────────────────────────────────────────
 const state = {
@@ -506,6 +563,9 @@ const state = {
   // timing
   gapDelay: GAP_START,
   groupTimeout: null,
+
+  // bonus bar
+  bonusChunks: 0,
 
   // audio
   audioCtx: null,
@@ -537,6 +597,27 @@ const $initialsEntry = document.getElementById('initials-entry');
 const $initialsHint = document.getElementById('initials-hint');
 const $leaderboard = document.getElementById('leaderboard');
 const $playAgainHint = document.getElementById('play-again-hint');
+
+// ─── Cycle / round helpers ────────────────────────────────────────────────────
+function getCycle() {
+  return Math.floor((state.round - 1) / ROUNDS_PER_CYCLE);
+}
+
+function getGroupSize() {
+  return ((state.round - 1) % ROUNDS_PER_CYCLE) + 1;
+}
+
+function getCycleGapStart() {
+  return Math.round(GAP_START * Math.pow(0.9, getCycle()));
+}
+
+function getCycleGapStep() {
+  return Math.round(GAP_STEP * Math.pow(0.9, getCycle()));
+}
+
+function redLettersActive() {
+  return state.round >= ROUNDS_PER_CYCLE; // from round 4 onwards
+}
 
 // ─── Audio ────────────────────────────────────────────────────────────────────
 function initAudio() {
@@ -626,9 +707,10 @@ function insertScore(initials, score, round) {
 function renderHUD() {
   $scoreDisplay.textContent = state.score;
 
-  // lives
+  // lives — show at least TOTAL_LIVES slots; extra earned lives expand the row
   $livesDisplay.innerHTML = '';
-  for (let i = 0; i < TOTAL_LIVES; i++) {
+  const totalPips = Math.max(TOTAL_LIVES, state.lives);
+  for (let i = 0; i < totalPips; i++) {
     const pip = document.createElement('span');
     pip.className = 'life-pip' + (i >= state.lives ? ' lost' : '');
     pip.id = `pip-${i}`;
@@ -772,6 +854,7 @@ function startGame() {
   state.gapDelay = GAP_START;
   state.pendingGameOver = false;
   state.lastLetter = null;
+  state.bonusChunks = 0;
 
   $screen.classList.add('hidden');
   $startScreen.style.display = 'none';
@@ -779,15 +862,17 @@ function startGame() {
   clearLetters();
   clearAnn();
   renderHUD();
+  updateBonusBar();
 
   announceRound(state.round, () => beginRound());
 }
 
 function beginRound() {
   state.groupIndex = 0;
-  state.gapDelay = GAP_START;
+  state.gapDelay = getCycleGapStart();
   state.phase = 'playing';
   clearLetters();
+  updateBonusBar();
   scheduleNextGroup();
 }
 
@@ -803,7 +888,7 @@ function showGroup() {
   state.wrongPressedThisGroup = false;
   state.groupFailed = false;
 
-  const groupSize = state.round;
+  const groupSize = getGroupSize();
   const excludeFirst = state.lastLetter || null;
   const letters = buildGroup(groupSize, excludeFirst);
 
@@ -816,21 +901,27 @@ function showGroup() {
     positions.push(pos);
   }
 
+  // assign red letters (10% chance each, only from round 4+)
+  const redActive = redLettersActive();
   state.currentGroup = letters.map((letter, i) => ({
     letter,
     el: null,
     appearTime: null,
     pos: positions[i],
     hit: false,
+    isRed: redActive && Math.random() < 0.1,
   }));
   state.nextExpected = 0;
 
-  const isFirstRound = state.round === 1;
+  const isSingleLetter = groupSize === 1;
 
   function showLetterAt(index) {
     const item = state.currentGroup[index];
     const el = document.createElement('div');
-    el.className = 'letter-el' + (index > 0 ? ' dim' : '');
+    const classes = ['letter-el'];
+    if (index > 0) classes.push('dim');
+    if (item.isRed) classes.push('red');
+    el.className = classes.join(' ');
     el.textContent = item.letter;
     el.style.left = `${item.pos.x}px`;
     el.style.top = `${item.pos.y}px`;
@@ -849,7 +940,7 @@ function showGroup() {
     }, 150);
   }
 
-  if (isFirstRound) {
+  if (isSingleLetter) {
     showLetterAt(0);
   } else {
     // stagger
@@ -866,6 +957,7 @@ function activateNextLetter() {
   if (!item.el) return;
   item.el.classList.remove('dim');
   item.el.classList.add('activating');
+  if (item.isRed) item.el.classList.add('red');
   item.appearTime = performance.now(); // reset reaction clock to when it became active
 }
 
@@ -882,7 +974,7 @@ function onGroupComplete() {
 
   state.groupIndex++;
   // decrease gap
-  state.gapDelay = Math.max(GAP_MIN, state.gapDelay - GAP_STEP);
+  state.gapDelay = Math.max(GAP_MIN, state.gapDelay - getCycleGapStep());
 
   if (state.groupIndex >= GROUPS_PER_ROUND) {
     // advance round
@@ -951,8 +1043,13 @@ function handleGameKey(letter) {
   // Actually by spec: "next expected letter: full opacity". Letters after that are dim.
   // The active target is idx.
 
-  if (letter === expectedItem.letter) {
-    // Correct!
+  // For red letters: any key EXCEPT the letter's key is correct
+  // For normal letters: the exact key is correct
+  const isCorrect = expectedItem.isRed
+    ? (letter !== expectedItem.letter)
+    : (letter === expectedItem.letter);
+
+  if (isCorrect) {
     const now = performance.now();
     const reactionMs = Math.round(now - expectedItem.appearTime);
     const points = Math.max(10, Math.round(50000 / Math.max(reactionMs, 50)));
@@ -962,9 +1059,14 @@ function handleGameKey(letter) {
     state.totalLetters++;
     if (reactionMs < state.bestMs) state.bestMs = reactionMs;
 
+    // if red letter was correctly avoided, add bonus chunk
+    if (expectedItem.isRed) {
+      addBonusChunk();
+    }
+
     // animate letter
     const el = expectedItem.el;
-    el.classList.remove('dim', 'activating', 'glow-fade');
+    el.classList.remove('dim', 'activating', 'glow-fade', 'red');
     el.classList.add('correct-anim');
     sfxCorrect();
 
@@ -1011,6 +1113,46 @@ function handleGameKey(letter) {
       }
     }
     // subsequent wrong presses: no effect
+  }
+}
+
+// ─── Bonus Bar ────────────────────────────────────────────────────────────────
+const $bonusBarContainer = document.getElementById('bonus-bar-container');
+const $bonusBar = document.getElementById('bonus-bar');
+
+// Build chunks once
+(function initBonusBar() {
+  for (let i = 0; i < BONUS_BAR_MAX; i++) {
+    const chunk = document.createElement('div');
+    chunk.className = 'bonus-chunk';
+    $bonusBar.appendChild(chunk);
+  }
+})();
+
+function updateBonusBar() {
+  const visible = state.round >= ROUNDS_PER_CYCLE;
+  $bonusBarContainer.style.display = visible ? 'flex' : 'none';
+  if (!visible) return;
+  const chunks = $bonusBar.querySelectorAll('.bonus-chunk');
+  chunks.forEach((chunk, i) => {
+    chunk.classList.toggle('filled', i < state.bonusChunks);
+  });
+}
+
+function addBonusChunk() {
+  state.bonusChunks++;
+  if (state.bonusChunks >= BONUS_BAR_MAX) {
+    state.bonusChunks = 0;
+    state.lives++;
+    renderHUD();
+    updateBonusBar();
+    // brief flash on the bar container
+    $bonusBarContainer.classList.remove('flash');
+    void $bonusBarContainer.offsetWidth;
+    $bonusBarContainer.classList.add('flash');
+    setTimeout(() => $bonusBarContainer.classList.remove('flash'), 600);
+  } else {
+    updateBonusBar();
   }
 }
 
