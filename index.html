@@ -109,11 +109,14 @@
   }
 
   #score-display {
-    font-size: 1.6rem;
+    font-size: clamp(1rem, 2.2vw, 1.6rem);
     color: #00e5ff;
     font-weight: 600;
     letter-spacing: 0.04em;
     line-height: 1;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    min-width: 8ch;
   }
 
   #lives-display {
@@ -237,6 +240,46 @@
   @keyframes scoreRise {
     0%   { transform: translateY(0);    opacity: 1; }
     100% { transform: translateY(-55px); opacity: 0; }
+  }
+
+  /* Burst rings */
+  .burst-ring {
+    position: absolute;
+    border-radius: 50%;
+    pointer-events: none;
+    transform: translate(-50%, -50%) scale(0);
+    z-index: 160;
+  }
+
+  @keyframes burstBig {
+    0%   { transform: translate(-50%, -50%) scale(0.2); opacity: 1; }
+    100% { transform: translate(-50%, -50%) scale(4.5); opacity: 0; }
+  }
+
+  @keyframes burstSmall {
+    0%   { transform: translate(-50%, -50%) scale(0.2); opacity: 0.6; }
+    100% { transform: translate(-50%, -50%) scale(2.5); opacity: 0; }
+  }
+
+  .burst-ring.big {
+    width: 64px;
+    height: 64px;
+    border: 2.5px solid #00e5ff;
+    animation: burstBig 420ms cubic-bezier(0.0, 0.5, 0.5, 1) forwards;
+  }
+
+  .burst-ring.small {
+    width: 56px;
+    height: 56px;
+    border: 1.5px solid rgba(0, 229, 255, 0.55);
+    animation: burstSmall 260ms ease-out forwards;
+  }
+
+  .burst-ring.baseline {
+    width: 56px;
+    height: 56px;
+    border: 1.5px solid rgba(255, 255, 255, 0.45);
+    animation: burstSmall 320ms ease-out forwards;
   }
 
   /* Screens */
@@ -410,7 +453,7 @@
   .lb-row.current { color: #00e5ff; font-weight: 700; }
   .lb-rank { width: 20px; text-align: right; }
   .lb-init { width: 30px; text-align: center; }
-  .lb-score { width: 60px; text-align: right; }
+  .lb-score { width: 100px; text-align: right; font-variant-numeric: tabular-nums; }
 
   #play-again-hint {
     margin-top: 20px;
@@ -527,20 +570,21 @@
 'use strict';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const GROUPS_PER_ROUND = 12;
+const GROUPS_PER_ROUND = 7;
 const TOTAL_LIVES = 3;
-const GAP_START = 2000;
+const GAP_START = 2500;
 const GAP_MIN = 300;
-const GAP_STEP = 250;
+const GAP_STEP = 200;
 const STAGGER_MS = 300;
 const ANN_CHAR_STAGGER = 250;
 const ANN_HOLD = 1500;
 const ANN_FADE = 300;
-const SCORE_POPUP_DURATION = 600;
+const SCORE_POPUP_DURATION = 700;
 const HUD_TOP_PAD = 70;
 const EDGE_PAD = 60;
 const BONUS_BAR_MAX = 24;
-const ROUNDS_PER_CYCLE = 4;
+const ROUNDS_PER_CYCLE = 7;
+const BURST_THRESHOLD_MS = 30; // within this many ms of best = small burst
 
 // ─── State ────────────────────────────────────────────────────────────────────
 const state = {
@@ -566,6 +610,10 @@ const state = {
 
   // bonus bar
   bonusChunks: 0,
+
+  // score animation
+  displayedScore: 0,
+  scoreAnimId: null,
 
   // audio
   audioCtx: null,
@@ -616,7 +664,7 @@ function getCycleGapStep() {
 }
 
 function redLettersActive() {
-  return state.round >= ROUNDS_PER_CYCLE; // from round 4 onwards
+  return getCycle() >= 1; // from set 2 (round 8) onwards
 }
 
 // ─── Audio ────────────────────────────────────────────────────────────────────
@@ -704,8 +752,39 @@ function insertScore(initials, score, round) {
 }
 
 // ─── HUD ──────────────────────────────────────────────────────────────────────
+function formatScore(n) {
+  return Math.round(n).toLocaleString();
+}
+
+function animateScoreTo(target) {
+  if (state.scoreAnimId) cancelAnimationFrame(state.scoreAnimId);
+  const start = state.displayedScore;
+  const delta = target - start;
+  if (delta <= 0) {
+    state.displayedScore = target;
+    $scoreDisplay.textContent = formatScore(target);
+    return;
+  }
+  const duration = Math.min(350, Math.max(120, delta / 500));
+  const startTime = performance.now();
+  function tick(now) {
+    const t = Math.min(1, (now - startTime) / duration);
+    const eased = 1 - Math.pow(1 - t, 2); // ease-out quad
+    state.displayedScore = start + delta * eased;
+    $scoreDisplay.textContent = formatScore(state.displayedScore);
+    if (t < 1) {
+      state.scoreAnimId = requestAnimationFrame(tick);
+    } else {
+      state.displayedScore = target;
+      $scoreDisplay.textContent = formatScore(target);
+      state.scoreAnimId = null;
+    }
+  }
+  state.scoreAnimId = requestAnimationFrame(tick);
+}
+
 function renderHUD() {
-  $scoreDisplay.textContent = state.score;
+  animateScoreTo(state.score);
 
   // lives — show at least TOTAL_LIVES slots; extra earned lives expand the row
   $livesDisplay.innerHTML = '';
@@ -808,6 +887,26 @@ function buildGroup(size, excludeFirst = null) {
   return letters;
 }
 
+// ─── Burst effect ─────────────────────────────────────────────────────────────
+function showBurst(cx, cy, type) {
+  const configs = {
+    big:      { rings: 3, delays: [0, 65, 130], dur: 420 },
+    small:    { rings: 1, delays: [0],           dur: 260 },
+    baseline: { rings: 2, delays: [0, 80],       dur: 320 },
+  };
+  const cfg = configs[type];
+  for (let i = 0; i < cfg.rings; i++) {
+    const ring = document.createElement('div');
+    ring.className = `burst-ring ${type}`;
+    ring.style.left = `${cx}px`;
+    ring.style.top  = `${cy}px`;
+    if (cfg.delays[i]) ring.style.animationDelay = `${cfg.delays[i]}ms`;
+    $container.appendChild(ring);
+    setTimeout(() => { if (ring.parentNode) ring.parentNode.removeChild(ring); },
+      cfg.dur + cfg.delays[i] + 60);
+  }
+}
+
 // ─── Score popup ──────────────────────────────────────────────────────────────
 function showScorePopup(x, y, points) {
   const el = document.createElement('div');
@@ -840,13 +939,15 @@ function showStartScreen() {
   $annLayer.innerHTML = '';
 
   const top = getTopScore();
-  $startHighscore.textContent = top !== null ? `HIGH SCORE: ${top}` : '';
+  $startHighscore.textContent = top !== null ? `HIGH SCORE: ${formatScore(top)}` : '';
 }
 
 function startGame() {
+  if (state.scoreAnimId) { cancelAnimationFrame(state.scoreAnimId); state.scoreAnimId = null; }
   state.round = 1;
   state.groupIndex = 0;
   state.score = 0;
+  state.displayedScore = 0;
   state.lives = TOTAL_LIVES;
   state.reactionTimes = [];
   state.totalLetters = 0;
@@ -1052,7 +1153,24 @@ function handleGameKey(letter) {
   if (isCorrect) {
     const now = performance.now();
     const reactionMs = Math.round(now - expectedItem.appearTime);
-    const points = Math.max(10, Math.round(50000 / Math.max(reactionMs, 50)));
+
+    // Multiplied scoring: base × group size × set number
+    const setNumber = getCycle() + 1;
+    const groupSizeMult = getGroupSize();
+    const basePoints = Math.max(10, Math.round(50000 / Math.max(reactionMs, 50)));
+    const points = basePoints * groupSizeMult * setNumber;
+
+    // Determine burst type before updating bestMs
+    const isFirstHit = state.reactionTimes.length === 0;
+    const previousBest = state.bestMs;
+    let burstType = null;
+    if (isFirstHit) {
+      burstType = 'baseline';
+    } else if (reactionMs < previousBest) {
+      burstType = 'big';
+    } else if (reactionMs <= previousBest + BURST_THRESHOLD_MS) {
+      burstType = 'small';
+    }
 
     state.score += points;
     state.reactionTimes.push(reactionMs);
@@ -1069,6 +1187,12 @@ function handleGameKey(letter) {
     el.classList.remove('dim', 'activating', 'glow-fade', 'red');
     el.classList.add('correct-anim');
     sfxCorrect();
+
+    // burst effect
+    if (burstType) {
+      const { w, h } = letterSize();
+      showBurst(expectedItem.pos.x + w / 2, expectedItem.pos.y + h / 2, burstType);
+    }
 
     // score popup
     const { w, h } = letterSize();
@@ -1130,7 +1254,7 @@ const $bonusBar = document.getElementById('bonus-bar');
 })();
 
 function updateBonusBar() {
-  const visible = state.round >= ROUNDS_PER_CYCLE;
+  const visible = getCycle() >= 1;
   $bonusBarContainer.style.display = visible ? 'flex' : 'none';
   if (!visible) return;
   const chunks = $bonusBar.querySelectorAll('.bonus-chunk');
@@ -1258,7 +1382,7 @@ function triggerGameOver() {
         : 0;
       const bestMs = state.bestMs === Infinity ? 0 : state.bestMs;
 
-      $gameoverFinalScore.textContent = state.score;
+      $gameoverFinalScore.textContent = formatScore(state.score);
       $gameoverDetails.innerHTML =
         `Reached Round ${state.round}<br>` +
         `Avg ${avgMs}ms &nbsp;·&nbsp; Best ${bestMs}ms<br>` +
@@ -1344,7 +1468,7 @@ function showLeaderboard(highlightRank) {
 
     const score = document.createElement('span');
     score.className = 'lb-score';
-    score.textContent = entry.score;
+    score.textContent = formatScore(entry.score);
 
     row.appendChild(rank);
     row.appendChild(init);
